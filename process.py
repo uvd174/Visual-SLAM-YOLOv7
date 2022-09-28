@@ -57,7 +57,6 @@ if __name__ == '__main__':
     parser.add_argument('--input', type=str, default='raw_videos/golf_test.mp4', help='input video path')
     parser.add_argument('--output_dir', type=str, default='processed_videos', help='output video path')
     parser.add_argument('--device', default='cpu', help='cpu | device_id')
-    parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
     opt = parser.parse_args()
     filename = os.path.basename(opt.input)
 
@@ -65,9 +64,9 @@ if __name__ == '__main__':
     process_command = f'python yolov7/detect.py --weights yolov7.pt --source {opt.input} --device {opt.device}' \
                       f' --project {opt.output_dir} --name . --save-txt --no-trace --exist-ok --class 0 --nosave'
 
-    # shutil.rmtree(os.path.join(opt.output_dir, 'labels'), ignore_errors=True)
+    shutil.rmtree(os.path.join(opt.output_dir, 'labels'), ignore_errors=True)
 
-    # subprocess.run(process_command, shell=True, text=True)
+    subprocess.run(process_command, shell=True, text=True)
 
     MIN_MATCH_COUNT = 15
 
