@@ -2,7 +2,7 @@ import argparse
 import os.path
 import subprocess
 import shutil
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import cv2
 import numpy as np
@@ -11,15 +11,35 @@ from tqdm import tqdm
 from modules.video_reader import VideoReader
 
 
-def draw_axes(img, H: np.ndarray, points: np.ndarray):
+def draw_axes(img: np.array, H: np.ndarray, axes_points: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    color = (0, 0, 255)
+
     if H is not None:
-        points = cv2.perspectiveTransform(points, H)
+        axes_points = cv2.perspectiveTransform(axes_points, H)
+        color = (0, 255, 0)
 
-    draw_points = points.reshape((-1, 1, 2)).astype(np.int32)
+    draw_points = axes_points.reshape((-1, 1, 2)).astype(np.int32)
 
-    img = cv2.line(img, tuple(draw_points[0].ravel()), tuple(draw_points[1].ravel()), (0, 255, 0), 3)
-    img = cv2.line(img, tuple(draw_points[2].ravel()), tuple(draw_points[3].ravel()), (0, 255, 0), 3)
-    return img, points
+    img = cv2.line(img, tuple(draw_points[0].ravel()), tuple(draw_points[1].ravel()), color, 3)
+    img = cv2.line(img, tuple(draw_points[2].ravel()), tuple(draw_points[3].ravel()), color, 3)
+    return img, axes_points
+
+
+def draw_feature_points(img: np.array, points: List[Optional['cv2.Keypoint']]) -> np.ndarray:
+    for point in points:
+        if point is None:
+            continue
+
+        img = cv2.circle(img, (int(point.pt[0]), int(point.pt[1])), 1, (0, 0, 255), -1)
+
+    return img
+
+
+def draw_boxes(img: np.array, boxes: List[List[float]]) -> np.ndarray:
+    for box in boxes:
+        img = cv2.rectangle(img, (int(box[0]), int(box[1])), (int(box[2]), int(box[3])), (0, 255, 0), 2)
+
+    return img
 
 
 def load_boxes(boxes_path: str, frame_width: int, frame_height: int) -> List[List[float]]:
@@ -33,6 +53,8 @@ def load_boxes(boxes_path: str, frame_width: int, frame_height: int) -> List[Lis
                     continue
                 box = [float(x) for x in line.split(' ')][1:]
 
+                box[0] -= box[2] / 2
+                box[1] -= box[3] / 2
                 box[2] += box[0]
                 box[3] += box[1]
 
@@ -50,6 +72,17 @@ def load_boxes(boxes_path: str, frame_width: int, frame_height: int) -> List[Lis
 
 def lies_in_box(point: Tuple[float, float], box: List[float]) -> bool:
     return box[0] <= point[0] <= box[2] and box[1] <= point[1] <= box[3]
+
+
+def filter_by_human_boxes(keypoints, descriptors, boxes: List[List[float]]):
+    kp_des = zip(keypoints, descriptors)
+    kp_des = [
+        (kp, des) for kp, des in kp_des
+        if not any([lies_in_box(kp.pt, box) for box in boxes])
+    ]
+    keypoints, descriptors = zip(*kp_des)
+
+    return keypoints, np.array(descriptors)
 
 
 if __name__ == '__main__':
@@ -79,6 +112,8 @@ if __name__ == '__main__':
     )
 
     homographies = []
+    filtered_feature_points = []
+    boxes = []
 
     for index, new_frame in enumerate(tqdm(frame_provider, desc='Processing frames')):
         new_frame = new_frame
@@ -86,6 +121,7 @@ if __name__ == '__main__':
             os.path.join(opt.output_dir, 'labels', filename.replace('.mp4', f'_{index + 2}.txt')),
             frame_provider.width, frame_provider.height,
         )
+        boxes.append(prev_boxes)
 
         # Applying the function
         sift = cv2.SIFT_create()
@@ -94,11 +130,10 @@ if __name__ == '__main__':
         new_kp, new_des = sift.detectAndCompute(new_frame, None)
 
         # filter Feature Points by human boxes
-        prev_kp_des = zip(prev_kp, prev_des)
-        prev_kp_des = [
-            (kp, des) for kp, des in prev_kp_des
-            if not any([lies_in_box(kp.pt, box) for box in prev_boxes])
-        ]
+        prev_kp, prev_des = filter_by_human_boxes(prev_kp, prev_des, prev_boxes)
+        new_kp, new_des = filter_by_human_boxes(new_kp, new_des, prev_boxes)
+
+        filtered_feature_points.append(prev_kp)
 
         FLANN_INDEX_KDTREE = 1
         index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
@@ -138,7 +173,7 @@ if __name__ == '__main__':
     )
 
     w, h = frame_provider.height, frame_provider.width
-    points = np.float32([
+    axes_points = np.float32([
         [h // 2, 0], [h // 2, w], [0, w // 2], [h, w // 2]
     ]).reshape(-1, 1, 2)
 
@@ -147,7 +182,9 @@ if __name__ == '__main__':
             tqdm(zip(homographies, frame_provider), total=len(homographies), desc='Visualizing')):
         homography, frame = homography_frame
 
-        frame, points = draw_axes(frame, homography, points)
+        frame, axes_points = draw_axes(frame, homography, axes_points)
+        frame = draw_boxes(frame, boxes[i])
+        frame = draw_feature_points(frame, filtered_feature_points[i])
 
         video_writer.write(frame)
 
