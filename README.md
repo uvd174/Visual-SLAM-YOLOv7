@@ -11,7 +11,7 @@ by human boxes detected by YOLOv7.
 <details>
 <summary>Installation</summary>
 
-Step 0. Install [Python](https://www.python.org/downloads/) and [PyTorch](https://pytorch.org/get-started/locally/#start-locally).  
+Step 0. Install [Python](https://www.python.org/downloads/) and [PyTorch](https://pytorch.org/get-started/locally/#start-locally) (torch and torchvision packages).  
 Developed and tested with Python 3.9.7 and PyTorch 1.12.1+cu116.
 
 Step 1. Clone the repository locally.
